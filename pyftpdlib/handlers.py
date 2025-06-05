@@ -3592,6 +3592,8 @@ if SSL is not None:
                     )
                     self._ssl_established = False
                     self._ssl_closing = False
+                    self._ssl_want_read = False
+                    self._ssl_want_write = False
                     self.handle_ssl_shutdown()
                 else:
                     debug(
@@ -3606,6 +3608,8 @@ if SSL is not None:
                 self._ssl_accepting = False
                 self._ssl_established = False
                 self._ssl_closing = False
+                self._ssl_want_read = False
+                self._ssl_want_write = False
                 super().close()
 
     class TLS_DTPHandler(SSLConnection, DTPHandler):
@@ -3779,6 +3783,13 @@ if SSL is not None:
         def close(self):
             SSLConnection.close(self)
             FTPHandler.close(self)
+
+        def handle_timeout(self):
+            """Override to ensure SSL flags are reset on timeout."""
+            # Reset SSL flags to prevent busy loop
+            self._ssl_want_read = False
+            self._ssl_want_write = False
+            FTPHandler.handle_timeout(self)
 
         # --- new methods
 
