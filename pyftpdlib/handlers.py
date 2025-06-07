@@ -3276,7 +3276,18 @@ if SSL is not None:
             self._ssl_want_read = False
             self._ssl_want_write = False
 
+        def _reset_ssl_flags(self):
+            """Reset all SSL-related flags to prevent CPU spinning."""
+            self._ssl_accepting = False
+            self._ssl_established = False
+            self._ssl_closing = False
+            self._ssl_want_read = False
+            self._ssl_want_write = False
+
         def readable(self):
+            # Defensive check: if socket is closed, we're not readable
+            if hasattr(self, 'socket') and getattr(self.socket, '_closed', False):
+                return False
             return (
                 self._ssl_accepting
                 or self._ssl_want_read
@@ -3302,6 +3313,9 @@ if SSL is not None:
                     f"{err!r}; closing",
                     self,
                 )
+                # Reset SSL flags before closing
+                self._ssl_want_read = False
+                self._ssl_want_write = False
                 self.close()
             except ValueError:
                 # may happen in case the client connects/disconnects
@@ -3310,6 +3324,9 @@ if SSL is not None:
                     debug(
                         "ValueError and fd == -1 on secure_connection()", self
                     )
+                    # Reset SSL flags before returning
+                    self._ssl_want_read = False
+                    self._ssl_want_write = False
                     return
                 raise
             else:
@@ -3421,6 +3438,8 @@ if SSL is not None:
             # when facing an unhandled exception in here it's better
             # to rely on base class (FTPHandler or DTPHandler)
             # close() method as it does not imply SSL shutdown logic
+            # BUT we must ensure SSL flags are reset to prevent CPU spinning
+            self._reset_ssl_flags()
             try:
                 super().close()
             except Exception:
@@ -3443,6 +3462,7 @@ if SSL is not None:
                 debug(
                     "call: send() -> shutdown(), err: zero-return", inst=self
                 )
+                self._reset_ssl_flags()
                 super().handle_close()
                 return 0
             except SSL.SysCallError as err:
@@ -3454,6 +3474,7 @@ if SSL is not None:
                     errnum in _ERRNOS_DISCONNECTED
                     or errstr == 'Unexpected EOF'
                 ):
+                    self._reset_ssl_flags()
                     super().handle_close()
                     return 0
                 else:
@@ -3474,6 +3495,7 @@ if SSL is not None:
                 debug(
                     "call: recv() -> shutdown(), err: zero-return", inst=self
                 )
+                self._reset_ssl_flags()
                 super().handle_close()
                 return b''
             except SSL.SysCallError as err:
@@ -3483,6 +3505,7 @@ if SSL is not None:
                     errnum in _ERRNOS_DISCONNECTED
                     or errstr == 'Unexpected EOF'
                 ):
+                    self._reset_ssl_flags()
                     super().handle_close()
                     return b''
                 else:
@@ -3512,6 +3535,7 @@ if SSL is not None:
                     }:
                         return
                     elif err.errno in _ERRNOS_DISCONNECTED:
+                        self._reset_ssl_flags()
                         return super().close()
                     else:
                         raise
@@ -3560,6 +3584,7 @@ if SSL is not None:
                     errnum in _ERRNOS_DISCONNECTED
                     or errstr == 'Unexpected EOF'
                 ):
+                    self._reset_ssl_flags()
                     super().close()
                 else:
                     raise
@@ -3581,6 +3606,7 @@ if SSL is not None:
                     inst=self,
                 )
                 if err.errno in _ERRNOS_DISCONNECTED:
+                    self._reset_ssl_flags()
                     super().close()
                 else:
                     raise
@@ -3590,10 +3616,7 @@ if SSL is not None:
                         "call: _do_ssl_shutdown(), shutdown completed",
                         inst=self,
                     )
-                    self._ssl_established = False
-                    self._ssl_closing = False
-                    self._ssl_want_read = False
-                    self._ssl_want_write = False
+                    self._reset_ssl_flags()
                     self.handle_ssl_shutdown()
                 else:
                     debug(
@@ -3605,11 +3628,7 @@ if SSL is not None:
             if self._ssl_established and not self._error:
                 self._do_ssl_shutdown()
             else:
-                self._ssl_accepting = False
-                self._ssl_established = False
-                self._ssl_closing = False
-                self._ssl_want_read = False
-                self._ssl_want_write = False
+                self._reset_ssl_flags()
                 super().close()
 
     class TLS_DTPHandler(SSLConnection, DTPHandler):
