@@ -3804,10 +3804,12 @@ if SSL is not None:
             FTPHandler.close(self)
 
         def handle_timeout(self):
-            """Override to ensure SSL flags are reset on timeout."""
-            # Reset SSL flags to prevent busy loop
-            self._ssl_want_read = False
-            self._ssl_want_write = False
+            """Override to ensure SSL connection is properly closed on timeout."""
+            # Mark as error to skip SSL shutdown which can hang
+            self._error = True
+            # Reset all SSL flags to prevent busy loop
+            self._reset_ssl_flags()
+            # Call parent timeout handler
             FTPHandler.handle_timeout(self)
 
         # --- new methods
